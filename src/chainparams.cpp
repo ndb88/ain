@@ -563,11 +563,11 @@ public:
         consensus.BIP34Hash = uint256();
         consensus.BIP65Height = 1351; // BIP65 activated on regtest (Used in functional tests)
         consensus.BIP66Height = 1251; // BIP66 activated on regtest (Used in functional tests)
-        consensus.AMKHeight = 10000000;
-        consensus.BayfrontHeight = 10000000;
-        consensus.BayfrontMarinaHeight = 10000000;
-        consensus.BayfrontGardensHeight = 10000000;
-        consensus.ClarkeQuayHeight = 10000000;
+        consensus.AMKHeight = 100;
+        consensus.BayfrontHeight = 110;
+        consensus.BayfrontMarinaHeight = 120;
+        consensus.BayfrontGardensHeight = 130;
+        consensus.ClarkeQuayHeight = 140;
 
         consensus.pos.diffLimit = uint256S("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
         consensus.pos.nTargetTimespan = 14 * 24 * 60 * 60; // two weeks
