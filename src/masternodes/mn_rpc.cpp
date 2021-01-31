@@ -2,6 +2,7 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include <masternodes/anchors.h>
 #include <masternodes/masternodes.h>
 #include <masternodes/criminals.h>
 #include <masternodes/mn_checks.h>
@@ -4471,6 +4472,63 @@ UniValue getanchorteams(const JSONRPCRequest& request) {
 }
 
 
+UniValue listanchors(const JSONRPCRequest& request)
+{
+    CWallet* const pwallet = GetWallet(request);
+
+    RPCHelpMan{"listanchors",
+               "\nList anchors (if any)\n",
+               {
+               },
+               RPCResult{
+                       "\"array\"                  Returns array of anchors\n"
+               },
+               RPCExamples{
+                       HelpExampleCli("listanchors", "")
+                       + HelpExampleRpc("listanchors", "")
+               },
+    }.Check(request);
+
+    auto locked_chain = pwallet->chain().lock();
+
+    auto confirms = pcustomcsview->CAnchorConfirmsView::GetAnchorConfirmData();
+
+    std::sort(confirms.begin(), confirms.end(), [](CAnchorConfirmDataPlus a, CAnchorConfirmDataPlus b) {
+        return a.anchorHeight < b.anchorHeight;
+    });
+
+    UniValue result(UniValue::VARR);
+    for (const auto& item : confirms) {
+        auto defiHash = pcustomcsview->GetRewardForAnchor(item.btcTxHash);
+
+        CTxDestination rewardDest = item.rewardKeyType == 1 ? CTxDestination(PKHash(item.rewardKeyID)) : CTxDestination(WitnessV0KeyHash(item.rewardKeyID));
+        UniValue entry(UniValue::VOBJ);
+        entry.pushKV("anchorHeight", static_cast<int>(item.anchorHeight));
+        if (item.dfiBlockHash != uint256()) {
+            entry.pushKV("anchorHash", item.dfiBlockHash.ToString());
+        }
+        entry.pushKV("rewardAddress", EncodeDestination(rewardDest));
+        if (defiHash) {
+            entry.pushKV("dfiRewardHash", defiHash->ToString());
+        }
+        if (item.btcTxHeight != 0) {
+            entry.pushKV("btcAnchorHeight", static_cast<int>(item.btcTxHeight));
+        }
+        entry.pushKV("btcAnchorHash", item.btcTxHash.ToString());
+
+        if (item.dfiBlockHash != uint256() && item.btcTxHeight != 0) {
+            entry.pushKV("confirmSignHash", item.GetSignHash().ToString());
+        } else {
+            entry.pushKV("confirmSignHash", static_cast<const CAnchorConfirmData &>(item).GetSignHash().ToString());
+        }
+
+        result.push_back(entry);
+    }
+
+    return result;
+}
+
+
 static const CRPCCommand commands[] =
 { //  category      name                  actor (function)     params
   //  ----------------- ------------------------    -----------------------     ----------
@@ -4482,6 +4540,7 @@ static const CRPCCommand commands[] =
     {"masternodes", "getmasternodeblocks",   &getmasternodeblocks,   {"identifier", "depth"}},
     {"masternodes", "listcriminalproofs",    &listcriminalproofs,    {}},
     {"masternodes", "getanchorteams",        &getanchorteams,        {"blockHeight"}},
+    {"masternodes", "listanchors",           &listanchors,           {}},
     {"tokens",      "createtoken",           &createtoken,           {"metadata", "inputs"}},
     {"tokens",      "updatetoken",           &updatetoken,           {"token", "metadata", "inputs"}},
     {"tokens",      "listtokens",            &listtokens,            {"pagination", "verbose"}},

@@ -35,6 +35,7 @@
 #include <script/script.h>
 #include <script/sigcache.h>
 #include <script/standard.h>
+#include <spv/spv_wrapper.h>
 #include <shutdown.h>
 #include <timedata.h>
 #include <tinyformat.h>
@@ -1625,8 +1626,29 @@ DisconnectResult CChainState::DisconnectBlock(const CBlock& block, const CBlockI
 
         if (is_coinbase) {
             std::vector<unsigned char> metadata;
-            if (IsAnchorRewardTx(tx, metadata)) {
-                LogPrintf("AnchorConfirms::DisconnectBlock(): disconnecting finalization tx: %s block: %d\n", tx.GetHash().GetHex(), block.height);
+            if (IsAnchorRewardTxPlus(tx, metadata))
+            {
+                LogPrint(BCLog::ANCHORING, "%s: disconnecting finalization tx: %s block: %d\n", __func__, tx.GetHash().GetHex(), block.height);
+                CDataStream ss(metadata, SER_NETWORK, PROTOCOL_VERSION);
+                CAnchorFinalizationMessagePlus finMsg;
+                ss >> finMsg;
+
+                LogPrint(BCLog::ANCHORING, "%s: Add community balance %d\n", __func__, tx.GetValueOut());
+                mnview.AddCommunityBalance(CommunityAccountType::AnchorReward, tx.GetValueOut());
+                mnview.RemoveRewardForAnchor(finMsg.btcTxHash);
+                mnview.EraseAnchorConfirmData(finMsg.btcTxHash);
+
+                CAnchorConfirmMessage message(static_cast<CAnchorConfirmDataPlus &>(finMsg));
+                for (auto && sig : finMsg.sigs) {
+                    message.signature = sig;
+                    disconnectedAnchorConfirms.push_back(message);
+                }
+
+                LogPrint(BCLog::ANCHORING, "%s: disconnected finalization tx: %s block: %d\n", __func__, tx.GetHash().GetHex(), block.height);
+            }
+            else if (IsAnchorRewardTx(tx, metadata))
+            {
+                LogPrint(BCLog::ANCHORING, "%s: disconnecting finalization tx: %s block: %d\n", __func__, tx.GetHash().GetHex(), block.height);
                 CDataStream ss(metadata, SER_NETWORK, PROTOCOL_VERSION);
                 CAnchorFinalizationMessage finMsg;
                 ss >> finMsg;
@@ -1635,22 +1657,19 @@ DisconnectResult CChainState::DisconnectBlock(const CBlock& block, const CBlockI
 
                 if (pindex->nHeight >= Params().GetConsensus().AMKHeight) {
                     mnview.AddCommunityBalance(CommunityAccountType::AnchorReward, tx.GetValueOut()); // or just 'Set..'
-                    LogPrintf("CChainState::DisconnectBlock: post AMK logic, add community balance %d\n", tx.GetValueOut());
+                    LogPrint(BCLog::ANCHORING, "%s: post AMK logic, add community balance %d\n", __func__, tx.GetValueOut());
                 }
                 else { // pre-AMK logic:
                     assert(mnview.GetFoundationsDebt() >= tx.GetValueOut());
                     mnview.SetFoundationsDebt(mnview.GetFoundationsDebt() - tx.GetValueOut());
                 }
                 mnview.RemoveRewardForAnchor(finMsg.btcTxHash);
+                mnview.EraseAnchorConfirmData(finMsg.btcTxHash);
 
-                CAnchorConfirmMessage message(static_cast<CAnchorConfirmData &>(finMsg));
-                for (auto && sig : finMsg.sigs) {
-                    message.signature = sig;
-                    disconnectedAnchorConfirms.push_back(message);
-                }
-
-                LogPrintf("AnchorConfirms::DisconnectBlock(): disconnected finalization tx: %s block: %d\n", tx.GetHash().GetHex(), block.height);
-            } else if (IsCriminalProofTx(tx, metadata)) {
+                LogPrint(BCLog::ANCHORING, "%s: disconnected finalization tx: %s block: %d\n", __func__, tx.GetHash().GetHex(), block.height);
+            }
+            else if (IsCriminalProofTx(tx, metadata))
+            {
                 if (mnview.UnbanCriminal(tx.GetHash(), metadata)) {
                     /// @todo criminals: refactor
                     std::pair<CBlockHeader, CBlockHeader> criminal;
@@ -1678,7 +1697,7 @@ DisconnectResult CChainState::DisconnectBlock(const CBlock& block, const CBlockI
 
         // restore inputs
         TBytes dummy;
-        if (i > 0 && !IsAnchorRewardTx(tx, dummy) && !IsCriminalProofTx(tx, dummy)) { // not coinbases
+        if (i > 0 && !IsAnchorRewardTx(tx, dummy) && !IsCriminalProofTx(tx, dummy) && !IsAnchorRewardTxPlus(tx, dummy)) { // not coinbases
             CTxUndo &txundo = blockUndo.vtxundo[i-1];
             if (txundo.vprevout.size() != tx.vin.size()) {
                 error("DisconnectBlock(): transaction and undo data inconsistent");
@@ -2231,9 +2250,23 @@ bool CChainState::ConnectBlock(const CBlock& block, CValidationState& state, CBl
 
                     bannedCriminals.push_back(mnid);
                 }
+            } else if (IsAnchorRewardTxPlus(tx, metadata)) {
+                if (!fJustCheck) {
+                    LogPrint(BCLog::ANCHORING, "%s: connecting finalization tx: %s block: %d\n", __func__, tx.GetHash().GetHex(), block.height);
+                }
+                ResVal<uint256> res = ApplyAnchorRewardTxPlus(mnview, tx, pindex->nHeight, metadata, chainparams.GetConsensus());
+                if (!res.ok) {
+                    return state.Invalid(ValidationInvalidReason::CONSENSUS,
+                                         error("ConnectBlock(): %s", res.msg),
+                                         REJECT_INVALID, res.dbgMsg);
+                }
+                rewardedAnchors.push_back(*res.val);
+                if (!fJustCheck) {
+                    LogPrint(BCLog::ANCHORING, "%s: connected finalization tx: %s block: %d\n", __func__, tx.GetHash().GetHex(), block.height);
+                }
             } else if (IsAnchorRewardTx(tx, metadata)) {
                 if (!fJustCheck) {
-                    LogPrintf("ConnectBlock(): connecting finalization tx: %s block: %d\n", tx.GetHash().GetHex(), block.height);
+                    LogPrint(BCLog::ANCHORING, "%s: connecting finalization tx: %s block: %d\n", __func__, tx.GetHash().GetHex(), block.height);
                 }
                 ResVal<uint256> res = ApplyAnchorRewardTx(mnview, tx, pindex->nHeight, pindex->pprev ? pindex->pprev->stakeModifier : uint256(), metadata, chainparams.GetConsensus());
                 if (!res.ok) {
@@ -2243,7 +2276,7 @@ bool CChainState::ConnectBlock(const CBlock& block, CValidationState& state, CBl
                 }
                 rewardedAnchors.push_back(*res.val);
                 if (!fJustCheck) {
-                    LogPrintf("ConnectBlock(): connected finalization tx: %s block: %d\n", tx.GetHash().GetHex(), block.height);
+                    LogPrint(BCLog::ANCHORING, "%s: connected finalization tx: %s block: %d\n", __func__, tx.GetHash().GetHex(), block.height);
                 }
             }
         }
@@ -2785,63 +2818,6 @@ bool CChainState::ConnectTip(CValidationState& state, const CChainParams& chainp
     return true;
 }
 
-// get highest valid anchor for given height in defi chain
-CAnchorIndex::AnchorRec const * GetHighestAnchorFor(uint32_t height)
-{
-    AssertLockHeld(cs_main);
-
-    auto it = panchors->GetActiveAnchor();
-    for (; it != nullptr && it->anchor.height > height; it = panchors->GetAnchorByBtcTx(it->anchor.previousAnchor))
-        ;
-
-    return it;
-}
-
-std::set<CBlockIndex*, CBlockIndexWorkComparator> FilterAnchorSatisfying(std::set<CBlockIndex*, CBlockIndexWorkComparator> source)
-{
-    AssertLockHeld(cs_main);
-
-    if (!gArgs.GetBoolArg("-anchorsbinding", true))
-        return source;
-
-    if (panchors->GetActiveAnchor() == nullptr)
-    {
-        return source;
-    }
-
-    std::set<CBlockIndex*, CBlockIndexWorkComparator> result;
-    do {
-        std::set<CBlockIndex*, CBlockIndexWorkComparator>::reverse_iterator it = source.rbegin();
-        if (it == source.rend())
-            return result;
-
-        CBlockIndex * pindex = *it;
-        auto anchor = GetHighestAnchorFor(pindex->height);
-
-        bool goodChain{false};
-        if (anchor) {
-            for (; pindex && pindex->height > anchor->anchor.height; pindex = pindex->pprev)
-                ;
-            if (pindex && pindex->GetBlockHash() == anchor->anchor.blockHash)
-                goodChain = true;
-        }
-        else {
-            goodChain = true;
-        }
-
-        pindex = *it;
-        do {
-            if (goodChain) {
-                result.insert(pindex);
-            }
-            source.erase(pindex);
-            pindex = pindex->pprev;
-
-        } while (pindex && source.find(pindex) != source.end());
-
-    } while(true);
-}
-
 /**
  * Return the tip of the chain with the most work in it, that isn't
  * known to be invalid (it's however far from certain to be valid).
@@ -2852,10 +2828,8 @@ CBlockIndex* CChainState::FindMostWorkChain() {
 
         // Find the best candidate header.
         {
-            auto filtered = FilterAnchorSatisfying(setBlockIndexCandidates);
-
-            std::set<CBlockIndex*, CBlockIndexWorkComparator>::reverse_iterator it = filtered.rbegin();
-            if (it == filtered.rend())
+            std::set<CBlockIndex*, CBlockIndexWorkComparator>::reverse_iterator it = setBlockIndexCandidates.rbegin();
+            if (it == setBlockIndexCandidates.rend())
                 return nullptr;
             pindexNew = *it;
         }
@@ -3054,84 +3028,6 @@ static void LimitValidationInterfaceQueue() LOCKS_EXCLUDED(cs_main) {
     }
 }
 
-void CChainState::RefillCandidates() {
-
-    std::set<CBlockIndex*> setOrphans;
-    std::set<CBlockIndex*> setPrevs;
-
-    auto oldSize = setBlockIndexCandidates.size();
-
-    for (const std::pair<const uint256, CBlockIndex*>& item : ::BlockIndex())
-    {
-        if (!::ChainActive().Contains(item.second)) {
-            setOrphans.insert(item.second);
-            setPrevs.insert(item.second->pprev);
-        }
-    }
-
-    for (std::set<CBlockIndex*>::iterator it = setOrphans.begin(); it != setOrphans.end(); ++it)
-    {
-        if (setPrevs.erase(*it) == 0 && (*it)->nHeight >= ::ChainActive().Height() && (*it)->HaveTxsDownloaded() && setBlockIndexCandidates.count(*it) == 0) {
-            setBlockIndexCandidates.insert(*it);
-            LogPrintf("RefillCandidates(): added block %i: %s\n", (*it)->nHeight, (*it)->GetBlockHash().ToString());
-        }
-    }
-    if (setBlockIndexCandidates.insert(m_chain.Tip()).second) { // current Tip should be there in any case (it seems to be not nesessary for reorg, but fails in CheckBlockIndex!)
-        LogPrintf("RefillCandidates(): added Tip(), block %i: %s\n", m_chain.Tip()->nHeight, m_chain.Tip()->GetBlockHash().ToString());
-    }
-
-    if (oldSize != setBlockIndexCandidates.size())
-        LogPrintf("RefillCandidates(): %i blocks restored\n", setBlockIndexCandidates.size() - oldSize);
-}
-
-void CChainState::RollBackIfTipConflictsWithAnchors(CValidationState &state, const CChainParams& chainparams) {
-    AssertLockHeld(cs_main);
-    AssertLockHeld(::mempool.cs);
-    if (!m_chain.Tip())
-        return;
-
-    auto anc = GetHighestAnchorFor(m_chain.Tip()->height);
-
-    CBlockIndex * earlyestConflictingBlock{nullptr};
-    // run down to the very first conflicting block
-    for ( ; anc && m_chain[anc->anchor.height]->GetBlockHash() != anc->anchor.blockHash; anc = panchors->GetAnchorByBtcTx(anc->anchor.previousAnchor))
-        earlyestConflictingBlock = m_chain[anc->anchor.height];
-
-    if (earlyestConflictingBlock) {
-        LogPrintf("RollBackIfTipConflictsWithAnchors: disconnect under %i: %s\n", earlyestConflictingBlock->height, earlyestConflictingBlock->GetBlockHash().ToString());
-
-        // Disconnect active blocks which conflicts with anchor
-        bool fBlocksDisconnected = false;
-        DisconnectedBlockTransactions disconnectpool;
-        while (m_chain.Tip() && m_chain.Tip()->height >= earlyestConflictingBlock->height) {
-            if (!DisconnectTip(state, chainparams, &disconnectpool)) {
-                // This is likely a fatal error, but keep the mempool consistent,
-                // just in case. Only remove from the mempool in this case.
-                UpdateMempoolForReorg(disconnectpool, false);
-
-                // If we're unable to disconnect a block during normal operation,
-                // then that is a failure of our local system -- we should abort
-                // rather than stay on a less work chain.
-                AbortNode(state, "Failed to disconnect block; see debug.log for details");
-                return;
-            }
-            fBlocksDisconnected = true;
-        }
-        if (fBlocksDisconnected) {
-            // If any blocks were disconnected, disconnectpool may be non empty.  Add
-            // any disconnected transactions back to the mempool.
-            UpdateMempoolForReorg(disconnectpool, true);
-
-            RefillCandidates();
-
-            // Possible not necessary
-            pindexBestHeader = m_chain.Tip();
-            nMinimumChainWork = m_chain.Tip()->nChainWork;
-            ResyncHeaders(*::g_connman);
-        }
-    }
-}
-
 /**
  * Make the best chain active, in multiple steps. The result is either failure
  * or an activated best chain. pblock is either nullptr or a pointer to a block
@@ -3153,12 +3049,6 @@ bool CChainState::ActivateBestChain(CValidationState &state, const CChainParams&
     // during large connects - and to allow for e.g. the callback queue to drain
     // we use m_cs_chainstate to enforce mutual exclusion so that only one caller may execute this function at a time
     LOCK(m_cs_chainstate);
-
-    {
-        LOCK2(cs_main, ::mempool.cs);
-        if (gArgs.GetBoolArg("-anchorsbinding", true))
-            RollBackIfTipConflictsWithAnchors(state, chainparams);
-    }
 
     CBlockIndex *pindexMostWork = nullptr;
     CBlockIndex *pindexNewTip = nullptr;
@@ -3610,7 +3500,8 @@ bool CheckBlock(const CBlock& block, CValidationState& state, const Consensus::P
         for (unsigned int i = 1; i < block.vtx.size(); i++) {
             if (block.vtx[i]->IsCoinBase() &&
                 !IsCriminalProofTx(*block.vtx[i], dummy) &&
-                !IsAnchorRewardTx(*block.vtx[i], dummy))
+                !IsAnchorRewardTx(*block.vtx[i], dummy) &&
+                !IsAnchorRewardTxPlus(*block.vtx[i], dummy))
                 return state.Invalid(ValidationInvalidReason::CONSENSUS, false, REJECT_INVALID, "bad-cb-multiple", "more than one coinbase");
         }
     }
@@ -4112,10 +4003,15 @@ bool CChainState::AcceptBlock(const std::shared_ptr<const CBlock>& pblock, CVali
 
     CheckBlockIndex(chainparams.GetConsensus());
 
+    // Only for SPV, post-fork rule can be removed later, skip on IBD.
+    if (spv::pspv && pindex->nHeight >= chainparams.GetConsensus().DakotaHeight && !IsInitialBlockDownload()) {
+        panchors->CheckPendingAnchors();
+    }
+
     return true;
 }
 
-bool AmISignerNow(CCustomCSView::CTeam const & team, CKeyID & operatorAuthAddress, CKey & masternodeKey)
+bool AmISignerNow(CAnchorData::CTeam const & team, CKeyID & operatorAuthAddress, CKey & masternodeKey)
 {
     AssertLockHeld(cs_main);
 
@@ -4149,7 +4045,15 @@ void ProcessAuthsIfTipChanged(CBlockIndex const * oldTip, CBlockIndex const * ti
     auto topAnchor = panchors->GetActiveAnchor();
     auto const team = panchors->GetCurrentTeam(topAnchor);
 
-    uint64_t topAnchorHeight = topAnchor ? (uint64_t) topAnchor->anchor.height : 0;
+    // Rename later when removing historical pre-fork anchor logic
+    auto const teamDakota = pcustomcsview->GetAuthTeam(tip->height);
+
+    bool newAnchorLogic{tip->height >= static_cast<uint64_t>(consensus.DakotaHeight)};
+    if (newAnchorLogic && (!teamDakota || teamDakota->empty())) {
+        return;
+    }
+
+    uint64_t topAnchorHeight = topAnchor ? static_cast<uint64_t>(topAnchor->anchor.height) : 0;
     // we have no need to ask for auths at all if we have topAnchor higher than current chain
     if (tip->height <= topAnchorHeight) {
         return;
@@ -4163,33 +4067,72 @@ void ProcessAuthsIfTipChanged(CBlockIndex const * oldTip, CBlockIndex const * ti
 
     if (tip->pprev != oldTip) {
         // asking all auths that may be skipped (rather we have switch the chain or not)
-        LogPrintf("request getauths from %d to %d\n", pindexFork->nHeight, tip->nHeight);
+        LogPrint(BCLog::ANCHORING, "request getauths from %d to %d\n", pindexFork->nHeight, tip->nHeight);
         RelayGetAnchorAuths(pindexFork->GetBlockHash(), tip->GetBlockHash(), *g_connman);
     }
 
     CKey masternodekey;
     CKeyID operatorAuthAddress;
-    if (!AmISignerNow(team, operatorAuthAddress, masternodekey)) {
-        return;
+
+    if (newAnchorLogic) {
+        if (!AmISignerNow(*teamDakota, operatorAuthAddress, masternodekey)) {
+            return;
+        }
+    } else {
+        if (!AmISignerNow(team, operatorAuthAddress, masternodekey)) {
+            return;
+        }
     }
 
     // trying to create auths between pindexFork and new tip (descending)
     std::vector<CInv> vInv;
     for (CBlockIndex const * pindex = tip; pindex && pindex != pindexFork; pindex = pindex->pprev) {
 
-        int anchorHeight = (int)pindex->height - consensus.mn.anchoringLag;
+        // Only anchor by specified frequency
+        if (pindex->height % consensus.mn.anchoringFrequency != 0) {
+            continue;
+        }
+
+        int anchorHeight = static_cast<int>(pindex->height) - consensus.mn.anchoringLag;
+
+        // Get anchor block from specified time depth
+        if (newAnchorLogic) {
+            while (anchorHeight > 0 && ::ChainActive()[anchorHeight]->nTime + consensus.mn.anchoringTimeDepth > tip->nTime) {
+                --anchorHeight;
+            }
+        }
+
         if (anchorHeight <= 0 || (topAnchor && topAnchor->anchor.height >= (THeight)anchorHeight)) { // important to check prev anchor height!
             break;
         }
-        if (pindex->height % consensus.mn.anchoringFrequency != 0) { // "height % 15" rule
-            continue;
-        }
+
         auto const anchorBlock = ::ChainActive()[anchorHeight];
 
-        LogPrintf("Anchor auth prepare, block: %d\n", anchorHeight);
+        LogPrint(BCLog::ANCHORING, "Anchor auth prepare, block: %d\n", anchorHeight);
+
+        // Create next team or data to find team if new logic
+        CTeamView::CTeam team;
+        if (newAnchorLogic) {
+            CKeyID teamDetails;
+
+            // Embed height and partial hash into CKeyID to find team later and validate chain
+            size_t prefixLength{CKeyID().size() - spv::BtcAnchorMarker.size() - sizeof(uint64_t)};
+            std::vector<unsigned char> hashPrefix{anchorBlock->GetBlockHash().begin(), anchorBlock->GetBlockHash().begin() + prefixLength};
+
+            int offset{0};
+            memcpy(&teamDetails, spv::BtcAnchorMarker.data(), spv::BtcAnchorMarker.size()); // 3 Bytes
+            offset += spv::BtcAnchorMarker.size();
+            memcpy(&teamDetails + offset, &pindex->height, sizeof(uint64_t)); // 8 Bytes
+            offset += sizeof(uint64_t);
+            memcpy(&teamDetails + offset, &hashPrefix, prefixLength); // 9 Bytes
+
+            team.insert(teamDetails);
+        } else {
+            team = pcustomcsview->CalcNextTeam(anchorBlock->stakeModifier);
+        }
 
         // trying to create and sign new auth
-        CAnchorAuthMessage auth({topAnchor ? topAnchor->txHash : uint256(), static_cast<THeight>(anchorHeight), anchorBlock->GetBlockHash(), pcustomcsview->CalcNextTeam(anchorBlock->stakeModifier)});
+        CAnchorAuthMessage auth({topAnchor ? topAnchor->txHash : uint256(), static_cast<THeight>(anchorHeight), anchorBlock->GetBlockHash(), team});
         if (!panchorauths->GetVote(auth.GetSignHash(), operatorAuthAddress))
         {
             auth.SignWithKey(masternodekey);
@@ -4200,9 +4143,6 @@ void ProcessAuthsIfTipChanged(CBlockIndex const * oldTip, CBlockIndex const * ti
                       auth.nextTeam.size(),
                       auth.GetSignHash().ToString()
                       );
-            for (auto node : auth.nextTeam) {
-                LogPrintf("Anchor auth team: %s\n", node.ToString());
-            }
 
             panchorauths->AddAuth(auth);
             vInv.push_back(CInv(MSG_ANCHOR_AUTH, auth.GetHash()));
@@ -5260,7 +5200,6 @@ void CChainState::CheckBlockIndex(const Consensus::Params& consensusParams)
     CBlockIndex* pindexFirstNotTransactionsValid = nullptr; // Oldest ancestor of pindex which does not have BLOCK_VALID_TRANSACTIONS (regardless of being valid or not).
     CBlockIndex* pindexFirstNotChainValid = nullptr; // Oldest ancestor of pindex which does not have BLOCK_VALID_CHAIN (regardless of being valid or not).
     CBlockIndex* pindexFirstNotScriptsValid = nullptr; // Oldest ancestor of pindex which does not have BLOCK_VALID_SCRIPTS (regardless of being valid or not).
-    auto filteredBlockIndexCandidates = FilterAnchorSatisfying(setBlockIndexCandidates);
     while (pindex != nullptr) {
         nNodes++;
         if (pindexFirstInvalid == nullptr && pindex->nStatus & BLOCK_FAILED_VALID) pindexFirstInvalid = pindex;
@@ -5311,7 +5250,7 @@ void CChainState::CheckBlockIndex(const Consensus::Params& consensusParams)
                 // setBlockIndexCandidates.  m_chain.Tip() must also be there
                 // even if some data has been pruned.
                 if (pindexFirstMissing == nullptr || pindex == m_chain.Tip()) {
-                    assert(setBlockIndexCandidates.count(pindex) || filteredBlockIndexCandidates.count(pindex) == 0);
+                     assert(setBlockIndexCandidates.count(pindex));
                 }
                 // If some parent is missing, then it could be that this block was in
                 // setBlockIndexCandidates but had to be removed because of the missing data.

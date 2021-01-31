@@ -622,10 +622,13 @@ UniValue spv_listanchorrewardconfirms(const JSONRPCRequest& request)
             // flush group
             CTxDestination rewardDest = prev->rewardKeyType == 1 ? CTxDestination(PKHash(prev->rewardKeyID)) : CTxDestination(WitnessV0KeyHash(prev->rewardKeyID));
             UniValue item(UniValue::VOBJ);
+            item.pushKV("btcTxHeight", static_cast<int>(prev->btcTxHeight));
             item.pushKV("btcTxHash", prev->btcTxHash.ToString());
             item.pushKV("anchorHeight", static_cast<int>(prev->anchorHeight));
+            item.pushKV("dfiBlockHash", prev->dfiBlockHash.ToString());
             item.pushKV("prevAnchorHeight", static_cast<int>(prev->prevAnchorHeight));
             item.pushKV("rewardAddress", EncodeDestination(rewardDest));
+            item.pushKV("anchorCreationHeight", static_cast<int>(prev->anchorCreationHeight));
             item.pushKV("confirmSignHash", prev->GetSignHash().ToString());
             item.pushKV("signers", (uint64_t)signers.size());
             result.push_back(item);
@@ -642,10 +645,13 @@ UniValue spv_listanchorrewardconfirms(const JSONRPCRequest& request)
         // place last confirm's group
         CTxDestination rewardDest = prev->rewardKeyType == 1 ? CTxDestination(PKHash(prev->rewardKeyID)) : CTxDestination(WitnessV0KeyHash(prev->rewardKeyID));
         UniValue item(UniValue::VOBJ);
+        item.pushKV("btcTxHeight", static_cast<int>(prev->btcTxHeight));
         item.pushKV("btcTxHash", prev->btcTxHash.ToString());
         item.pushKV("anchorHeight", static_cast<int>(prev->anchorHeight));
+        item.pushKV("dfiBlockHash", prev->dfiBlockHash.ToString());
         item.pushKV("prevAnchorHeight", static_cast<int>(prev->prevAnchorHeight));
         item.pushKV("rewardAddress", EncodeDestination(rewardDest));
+        item.pushKV("anchorCreationHeight", static_cast<int>(prev->anchorCreationHeight));
         item.pushKV("confirmSignHash", prev->GetSignHash().ToString());
         item.pushKV("signers", (uint64_t)signers.size());
         result.push_back(item);

@@ -29,6 +29,7 @@ const unsigned char DB_MN_OPERATORS = 'o';    // masternodes' operators index
 const unsigned char DB_MN_OWNERS = 'w';       // masternodes' owners index
 const unsigned char DB_MN_HEIGHT = 'H';       // single record with last processed chain height
 const unsigned char DB_MN_ANCHOR_REWARD = 'r';
+const unsigned char DB_MN_ANCHOR_CONFIRM = 'x';
 const unsigned char DB_MN_CURRENT_TEAM = 't';
 const unsigned char DB_MN_FOUNDERS_DEBT = 'd';
 const unsigned char DB_MN_AUTH_TEAM = 'v';
@@ -38,6 +39,7 @@ const unsigned char CMasternodesView::ID      ::prefix = DB_MASTERNODES;
 const unsigned char CMasternodesView::Operator::prefix = DB_MN_OPERATORS;
 const unsigned char CMasternodesView::Owner   ::prefix = DB_MN_OWNERS;
 const unsigned char CAnchorRewardsView::BtcTx ::prefix = DB_MN_ANCHOR_REWARD;
+const unsigned char CAnchorConfirmsView::BtcTx::prefix = DB_MN_ANCHOR_CONFIRM;
 const unsigned char CTeamView::AuthTeam       ::prefix = DB_MN_AUTH_TEAM;
 const unsigned char CTeamView::ConfirmTeam    ::prefix = DB_MN_CONFIRM_TEAM;
 
@@ -434,8 +436,13 @@ void CTeamView::SetAnchorTeams(const CTeam& authTeam, const CTeam& confirmTeam, 
         return;
     }
 
-    WriteBy<AuthTeam>(height, authTeam);
-    WriteBy<ConfirmTeam>(height, confirmTeam);
+    if (!authTeam.empty()) {
+        WriteBy<AuthTeam>(height, authTeam);
+    }
+
+    if (!confirmTeam.empty()) {
+        WriteBy<ConfirmTeam>(height, confirmTeam);
+    }
 }
 
 boost::optional<CTeamView::CTeam> CTeamView::GetAuthTeam(int height) const
@@ -473,6 +480,37 @@ void CAnchorRewardsView::RemoveRewardForAnchor(const CAnchorRewardsView::AnchorT
 void CAnchorRewardsView::ForEachAnchorReward(std::function<bool (const CAnchorRewardsView::AnchorTxHash &, CLazySerialize<CAnchorRewardsView::RewardTxHash>)> callback)
 {
     ForEach<BtcTx, AnchorTxHash, RewardTxHash>(callback);
+}
+
+/*
+ *  CAnchorConfirmsView
+ */
+
+void CAnchorConfirmsView::AddAnchorConfirmData(const CAnchorConfirmDataPlus& data)
+{
+    WriteBy<BtcTx>(data.btcTxHash, data);
+}
+
+void CAnchorConfirmsView::EraseAnchorConfirmData(uint256 btcTxHash)
+{
+    EraseBy<BtcTx>(btcTxHash);
+}
+
+void CAnchorConfirmsView::ForEachAnchorConfirmData(std::function<bool(const AnchorTxHash &, CLazySerialize<CAnchorConfirmDataPlus>)> callback)
+{
+    ForEach<BtcTx, AnchorTxHash, CAnchorConfirmDataPlus>(callback);
+}
+
+std::vector<CAnchorConfirmDataPlus> CAnchorConfirmsView::GetAnchorConfirmData()
+{
+    std::vector<CAnchorConfirmDataPlus> confirms;
+
+    ForEachAnchorConfirmData([&confirms](const CAnchorConfirmsView::AnchorTxHash &, CLazySerialize<CAnchorConfirmDataPlus> data) {
+        confirms.push_back(data);
+        return true;
+    });
+
+    return confirms;
 }
 
 /*
@@ -581,44 +619,31 @@ void CCustomCSView::CalcAnchoringTeams(const uint256 & stakeModifier, const CBlo
 }
 
 /// @todo newbase move to networking?
-void CCustomCSView::CreateAndRelayConfirmMessageIfNeed(const CAnchor & anchor, const uint256 & btcTxHash)
+void CCustomCSView::CreateAndRelayConfirmMessageIfNeed(const CAnchorIndex::AnchorRec *anchor, const uint256 & btcTxHash, const CKeyID& operatorAuthAddress)
 {
-    /// @todo refactor to use AmISignerNow()
-    auto myIDs = AmIOperator();
-    if (!myIDs || !GetMasternode(myIDs->second)->IsActive())
-        return ;
-    CKeyID const & operatorAuthAddress = myIDs->first;
-    CTeam const currentTeam = GetCurrentTeam();
-    if (currentTeam.find(operatorAuthAddress) == currentTeam.end()) {
-        LogPrintf("AnchorConfirms::CreateAndRelayConfirmMessageIfNeed: Warning! I am not in a team %s\n", operatorAuthAddress.ToString());
-        return ;
-    }
-
     std::vector<std::shared_ptr<CWallet>> wallets = GetWallets();
-    CKey masternodeKey{};
-    for (auto const wallet : wallets) {
+    CKey masternodeKey;
+    for (const auto& wallet : wallets) {
         if (wallet->GetKey(operatorAuthAddress, masternodeKey)) {
             break;
         }
-        masternodeKey = CKey{};
     }
 
     if (!masternodeKey.IsValid()) {
-        LogPrintf("AnchorConfirms::CreateAndRelayConfirmMessageIfNeed: Warning! Masternodes is't valid %s\n", operatorAuthAddress.ToString());
-        // return error("%s: Can't read masternode operator private key", __func__);
-        return ;
+        LogPrint(BCLog::ANCHORING, "%s: Warning! Masternodes is't valid %s\n", __func__, operatorAuthAddress.ToString());
+        return;
     }
 
-    auto prev = panchors->GetAnchorByTx(anchor.previousAnchor);
-    auto confirmMessage = CAnchorConfirmMessage::CreateSigned(anchor, prev? prev->anchor.height : 0, btcTxHash, masternodeKey);
-    if (panchorAwaitingConfirms->Add(confirmMessage)) {
-        LogPrintf("AnchorConfirms::CreateAndRelayConfirmMessageIfNeed: Create message %s\n", confirmMessage.GetHash().GetHex());
-        RelayAnchorConfirm(confirmMessage.GetHash(), *g_connman);
+    auto prev = panchors->GetAnchorByTx(anchor->anchor.previousAnchor);
+    auto confirmMessage = CAnchorConfirmMessage::CreateSigned(anchor->anchor, prev ? prev->anchor.height : 0, btcTxHash, masternodeKey, anchor->btcHeight);
+    if (confirmMessage) {
+        if (panchorAwaitingConfirms->Add(*confirmMessage)) {
+            LogPrint(BCLog::ANCHORING, "%s: Create message %s\n", __func__, confirmMessage->GetHash().GetHex());
+            RelayAnchorConfirm(confirmMessage->GetHash(), *g_connman);
+        }    else {
+            LogPrint(BCLog::ANCHORING, "%s: Not relaying %s because message (or vote!) already exist\n", __func__, confirmMessage->GetHash().GetHex());
+        }
     }
-    else {
-        LogPrintf("AnchorConfirms::CreateAndRelayConfirmMessageIfNeed: Warning! not need relay %s because message (or vote!) already exist\n", confirmMessage.GetHash().GetHex());
-    }
-
 }
 
 void CCustomCSView::OnUndoTx(uint256 const & txid, uint32_t height)

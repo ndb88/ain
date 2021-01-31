@@ -11,6 +11,7 @@
 #include <serialize.h>
 #include <masternodes/accounts.h>
 #include <masternodes/accountshistory.h>
+#include <masternodes/anchors.h>
 #include <masternodes/incentivefunding.h>
 #include <masternodes/tokens.h>
 #include <masternodes/undos.h>
@@ -29,8 +30,6 @@
 
 class CBlockIndex;
 class CTransaction;
-class CAnchor;
-
 
 // Works instead of constants cause 'regtest' differs (don't want to overcharge chainparams)
 int GetMnActivationDelay();
@@ -158,7 +157,7 @@ public:
 class CTeamView : public virtual CStorageView
 {
 public:
-    using CTeam = std::set<CKeyID>;
+    using CTeam = CAnchorData::CTeam;
 
     void SetTeam(CTeam const & newTeam);
     void SetAnchorTeams(CTeam const & authTeam, CTeam const & confirmTeam, const int height);
@@ -186,6 +185,20 @@ public:
     struct BtcTx { static const unsigned char prefix; };
 };
 
+class CAnchorConfirmsView : public virtual CStorageView
+{
+public:
+    using AnchorTxHash = uint256;
+
+    std::vector<CAnchorConfirmDataPlus> GetAnchorConfirmData();
+
+    void AddAnchorConfirmData(const CAnchorConfirmDataPlus& data);
+    void EraseAnchorConfirmData(const uint256 btcTxHash);
+    void ForEachAnchorConfirmData(std::function<bool(const AnchorTxHash &, CLazySerialize<CAnchorConfirmDataPlus>)> callback);
+
+    struct BtcTx { static const unsigned char prefix; };
+};
+
 class CCustomCSView
         : public CMasternodesView
         , public CLastHeightView
@@ -200,6 +213,7 @@ class CCustomCSView
         , public CUndosView
         , public CPoolPairView
         , public CGovView
+        , public CAnchorConfirmsView
 {
 public:
     CCustomCSView() = default;
@@ -219,7 +233,7 @@ public:
     void CalcAnchoringTeams(uint256 const & stakeModifier, const CBlockIndex *pindexNew);
 
     /// @todo newbase move to networking?
-    void CreateAndRelayConfirmMessageIfNeed(const CAnchor & anchor, const uint256 & btcTxHash);
+    void CreateAndRelayConfirmMessageIfNeed(const CAnchorIndex::AnchorRec* anchor, const uint256 & btcTxHash, const CKeyID& operatorAuthAddress);
 
     // simplified version of undo, without any unnecessary undo data
     void OnUndoTx(uint256 const & txid, uint32_t height);
