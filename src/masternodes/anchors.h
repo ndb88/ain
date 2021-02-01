@@ -397,8 +397,8 @@ public:
         , signature()
     {}
 
-    static boost::optional<CAnchorConfirmMessage> CreateSigned(const CAnchor &anchor, const THeight prevAnchorHeight, const uint256 &btcTxHash,
-                                              CKey const & key, const THeight btcTxHeight);
+    static boost::optional<CAnchorConfirmMessage> CreateSigned(const CAnchor &anchor, const THeight prevAnchorHeight,
+                                                               const uint256 &btcTxHash, CKey const & key, const THeight btcTxHeight);
     uint256 GetHash() const;
     CKeyID GetSigner() const;
 
@@ -427,7 +427,7 @@ struct CAnchorFinalizationMessagePlus : public CAnchorConfirmDataPlus
         , sigs()
     {}
 
-    bool CheckConfirmSigs();
+    bool CheckConfirmSigs(const uint32_t height);
 
     ADD_SERIALIZE_METHODS;
 

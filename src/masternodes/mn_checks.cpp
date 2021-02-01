@@ -1443,13 +1443,14 @@ ResVal<uint256> ApplyAnchorRewardTxPlus(CCustomCSView & mnview, CTransaction con
                            finMsg.btcTxHash.ToString(), (*rewardTx).ToString());
     }
 
-    if (!finMsg.CheckConfirmSigs()) {
+    // Miner used confirm team at chain height when creating this TX, this is height - 1.
+    if (!finMsg.CheckConfirmSigs(height - 1)) {
         return Res::ErrDbg("bad-ar-sigs", "anchor signatures are incorrect");
     }
 
-    auto team = pcustomcsview->GetConfirmTeam(finMsg.anchorCreationHeight);
+    auto team = pcustomcsview->GetConfirmTeam(height - 1);
     if (!team) {
-        return Res::ErrDbg("bad-ar-team", "could not get confirm team for height: %d", finMsg.anchorCreationHeight);
+        return Res::ErrDbg("bad-ar-team", "could not get confirm team for height: %d", height - 1);
     }
 
     if (finMsg.sigs.size() < GetMinAnchorQuorum(*team)) {

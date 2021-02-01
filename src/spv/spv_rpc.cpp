@@ -691,6 +691,41 @@ UniValue spv_listanchorrewards(const JSONRPCRequest& request)
     return result;
 }
 
+UniValue spv_listanchorsunrewarded(const JSONRPCRequest& request)
+{
+    CWallet* const pwallet = GetWallet(request);
+
+    RPCHelpMan{"spv_listanchorunrewarded",
+               "\nList anchors that have yet to be paid\n",
+               {
+               },
+               RPCResult{
+                       "\"array\"                  Returns array of anchor rewards\n"
+               },
+               RPCExamples{
+                       HelpExampleCli("spv_listanchorrewards", "")
+                       + HelpExampleRpc("spv_listanchorrewards", "")
+               },
+    }.Check(request);
+
+    auto locked_chain = pwallet->chain().lock();
+
+    UniValue result(UniValue::VARR);
+
+    CAnchorIndex::UnrewardedResult unrewarded = panchors->GetUnrewarded();
+    for (auto const & btcTxHash : unrewarded) {
+        auto rec = panchors->GetAnchorByTx(btcTxHash);
+        UniValue item(UniValue::VOBJ);
+        item.pushKV("dfiHeight", static_cast<int>(rec->anchor.height));
+        item.pushKV("dfiHash", rec->anchor.blockHash.ToString());
+        item.pushKV("btcHeight", static_cast<int>(rec->btcHeight));
+        item.pushKV("btcHash", btcTxHash.ToString());
+        result.push_back(item);
+    }
+
+    return result;
+}
+
 UniValue spv_setlastheight(const JSONRPCRequest& request)
 {
     RPCHelpMan{"spv_setlastheight",
@@ -733,6 +768,7 @@ static const CRPCCommand commands[] =
   { "spv",      "spv_listanchorauths",        &spv_listanchorauths,       { }  },
   { "spv",      "spv_listanchorrewardconfirms",     &spv_listanchorrewardconfirms,    { }  },
   { "spv",      "spv_listanchorrewards",      &spv_listanchorrewards,     { }  },
+  { "spv",      "spv_listanchorsunrewarded",  &spv_listanchorsunrewarded, { }  },
   { "hidden",   "spv_setlastheight",          &spv_setlastheight,         { "height" }  },
 };
 

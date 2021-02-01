@@ -891,24 +891,31 @@ uint256 CAnchorConfirmDataPlus::GetSignHash() const
 boost::optional<CAnchorConfirmMessage> CAnchorConfirmMessage::CreateSigned(const CAnchor& anchor, const THeight prevAnchorHeight,
                                                                            const uint256 &btcTxHash, CKey const & key, const THeight btcTxHeight)
 {
-    // Size should already be checked by ContextualValidateAnchor. Let's double check, no one likes segfaults!
-    if (anchor.nextTeam.size() == 1) {
-        const CKeyID& teamData = *anchor.nextTeam.begin();
-        uint64_t anchorCreationHeight;
-        memcpy(&anchorCreationHeight, &teamData + spv::BtcAnchorMarker.size(), sizeof(uint64_t));
+    uint64_t anchorCreationHeight{0};
 
-        CAnchorConfirmMessage message(CAnchorConfirmDataPlus{btcTxHash, anchor.height, prevAnchorHeight, anchor.rewardKeyID, anchor.rewardKeyType,
-                                                             anchor.blockHash, btcTxHeight, static_cast<uint32_t>(anchorCreationHeight)});
-        if (!key.SignCompact(message.GetSignHash(), message.signature)) {
-            message.signature.clear();
+    // Potential post-fork unrewarded anchor
+    if (anchor.nextTeam.size() == 1) {
+        std::vector<uint8_t> marker(3, '0');
+
+        // Team data reference
+        const CKeyID& teamData = *anchor.nextTeam.begin();
+
+        memcpy(marker.data(), &teamData, spv::BtcAnchorMarker.size());
+
+        // Check this is post-fork anchor
+        if (marker == spv::BtcAnchorMarker) {
+            memcpy(&anchorCreationHeight, &teamData + spv::BtcAnchorMarker.size(), sizeof(uint64_t));
         }
-        return message;
-    } else {
-        LogPrint(BCLog::ANCHORING, "%s: incorrect amount of team members. Received %d anchor height %d hash %s\n",
-                 __func__, anchor.nextTeam.size(), anchor.height, anchor.blockHash.ToString());
     }
 
-    return {};
+    CAnchorConfirmMessage message(CAnchorConfirmDataPlus{btcTxHash, anchor.height, prevAnchorHeight, anchor.rewardKeyID, anchor.rewardKeyType,
+                                                         anchor.blockHash, btcTxHeight, static_cast<uint32_t>(anchorCreationHeight)});
+
+    if (!key.SignCompact(message.GetSignHash(), message.signature)) {
+        message.signature.clear();
+    }
+
+    return message;
 }
 
 uint256 CAnchorConfirmMessage::GetHash() const
@@ -929,9 +936,9 @@ bool CAnchorFinalizationMessage::CheckConfirmSigs()
     return CheckSigs(GetSignHash(), sigs, currentTeam);
 }
 
-bool CAnchorFinalizationMessagePlus::CheckConfirmSigs()
+bool CAnchorFinalizationMessagePlus::CheckConfirmSigs(const uint32_t height)
 {
-    auto team = pcustomcsview->GetConfirmTeam(anchorCreationHeight);
+    auto team = pcustomcsview->GetConfirmTeam(height);
     if (!team) {
         return false;
     }

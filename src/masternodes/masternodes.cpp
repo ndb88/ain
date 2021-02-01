@@ -636,13 +636,11 @@ void CCustomCSView::CreateAndRelayConfirmMessageIfNeed(const CAnchorIndex::Ancho
 
     auto prev = panchors->GetAnchorByTx(anchor->anchor.previousAnchor);
     auto confirmMessage = CAnchorConfirmMessage::CreateSigned(anchor->anchor, prev ? prev->anchor.height : 0, btcTxHash, masternodeKey, anchor->btcHeight);
-    if (confirmMessage) {
-        if (panchorAwaitingConfirms->Add(*confirmMessage)) {
-            LogPrint(BCLog::ANCHORING, "%s: Create message %s\n", __func__, confirmMessage->GetHash().GetHex());
-            RelayAnchorConfirm(confirmMessage->GetHash(), *g_connman);
-        }    else {
-            LogPrint(BCLog::ANCHORING, "%s: Not relaying %s because message (or vote!) already exist\n", __func__, confirmMessage->GetHash().GetHex());
-        }
+    if (panchorAwaitingConfirms->Add(*confirmMessage)) {
+        LogPrint(BCLog::ANCHORING, "%s: Create message %s\n", __func__, confirmMessage->GetHash().GetHex());
+        RelayAnchorConfirm(confirmMessage->GetHash(), *g_connman);
+    }    else {
+        LogPrint(BCLog::ANCHORING, "%s: Not relaying %s because message (or vote!) already exist\n", __func__, confirmMessage->GetHash().GetHex());
     }
 }
 

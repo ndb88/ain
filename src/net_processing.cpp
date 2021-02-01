@@ -1633,7 +1633,7 @@ void static ProcessGetData(CNode* pfrom, const CChainParams& chainparams, CConnm
             it++;
 
             if (inv.type == MSG_ANCHOR_AUTH) {
-                LogPrintf("Searching anchorauth, hash: %s\n", inv.hash.ToString());
+                LogPrint(BCLog::ANCHORING, "Searching anchorauth, hash: %s\n", inv.hash.ToString());
                 CAnchorAuthMessage const * auth = panchorauths->GetAuth(inv.hash);
                 if (auth) {
                     LogPrintf("PushMessage anchorauth, hash: %s\n", auth->GetHash().ToString());
@@ -1643,7 +1643,7 @@ void static ProcessGetData(CNode* pfrom, const CChainParams& chainparams, CConnm
             if (inv.type == MSG_ANCHOR_CONFIRM) {
                 CAnchorConfirmMessage const * message = panchorAwaitingConfirms->GetConfirm(inv.hash);
                 if (message) {
-                    LogPrintf("PushMessage anchorconfirm, hash: %s\n", message->GetHash().ToString());
+                    LogPrint(BCLog::ANCHORING, "PushMessage anchorconfirm, hash: %s\n", message->GetHash().ToString());
                     connman->PushMessage(pfrom, msgMaker.Make(NetMsgType::ANCHORCONFIRM, *message));
                 }
             }
