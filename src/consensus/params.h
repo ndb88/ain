@@ -120,6 +120,9 @@ struct Params {
         int anchoringTeamSize;
         int anchoringFrequency; // create every Nth block
         int anchoringLag;       // older than Tip() by
+
+        int anchoringTimeDepth; // Min age of anchored blocks
+        int anchoringTeamChange; // How many blocks before team is changed
     };
     MnParams mn;
 

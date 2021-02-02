@@ -157,6 +157,9 @@ public:
         consensus.mn.anchoringFrequency = 15;
         consensus.mn.anchoringLag = 15;
 
+        consensus.mn.anchoringTimeDepth = 3 * 60 * 60; // 3 hours
+        consensus.mn.anchoringTeamChange = 120; // Number of blocks
+
         consensus.token.creationFee = 100 * COIN;
         consensus.token.collateralAmount = 1 * COIN;
 
@@ -332,6 +335,9 @@ public:
         consensus.mn.anchoringFrequency = 15;
         consensus.mn.anchoringLag = 15;
 
+        consensus.mn.anchoringTimeDepth = 3 * 60 * 60; // 3 hours
+        consensus.mn.anchoringTeamChange = 120; // Number of blocks
+
         consensus.token.creationFee = 100 * COIN;
         consensus.token.collateralAmount = 1 * COIN;
 
@@ -473,6 +479,9 @@ public:
         consensus.mn.anchoringFrequency = 15;
         consensus.mn.anchoringLag = 15;
 
+        consensus.mn.anchoringTimeDepth = 3 * 60 * 60; // 3 hours
+        consensus.mn.anchoringTeamChange = 120; // Number of blocks
+
         consensus.spv.creationFee = 100000; // should be > bitcoin's dust
         consensus.spv.wallet_xpub = "tpubD9RkyYW1ixvD9vXVpYB1ka8rPZJaEQoKraYN7YnxbBxxsRYEMZgRTDRGEo1MzQd7r5KWxH8eRaQDVDaDuT4GnWgGd17xbk6An6JMdN4dwsY"; /// @note devnet matter
         consensus.spv.anchors_address = "mpAkq2LyaUvKrJm2agbswrkn3QG9febnqL"; /// @note devnet matter
@@ -607,6 +616,9 @@ public:
         consensus.mn.anchoringTeamSize = 8;
         consensus.mn.anchoringFrequency = 15;
         consensus.mn.anchoringLag = 15;
+
+        consensus.mn.anchoringTimeDepth = 0; // Any depth
+        consensus.mn.anchoringTeamChange = 15; // Number of blocks
 
         consensus.token.creationFee = 1 * COIN;
         consensus.token.collateralAmount = 10 * COIN;
