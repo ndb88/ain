@@ -527,6 +527,7 @@ UniValue spv_listanchors(const JSONRPCRequest& request)
         anchor.pushKV("defiBlockHash", rec.anchor.blockHash.ToString());
         anchor.pushKV("rewardAddress", EncodeDestination(rewardDest));
         anchor.pushKV("confirmations", panchors->GetAnchorConfirmations(&rec));
+        anchor.pushKV("signatures", rec.anchor.sigs.size());
         bool const isActive = cur && cur->txHash == rec.txHash;
         anchor.pushKV("active", isActive);
         if (isActive) {
@@ -746,7 +747,7 @@ UniValue spv_listanchorsunrewarded(const JSONRPCRequest& request)
 {
     CWallet* const pwallet = GetWallet(request);
 
-    RPCHelpMan{"spv_listanchorunrewarded",
+    RPCHelpMan{"spv_listanchorsunrewarded",
                "\nList anchors that have yet to be paid\n",
                {
                },

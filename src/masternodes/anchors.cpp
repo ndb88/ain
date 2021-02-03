@@ -98,7 +98,7 @@ bool CAnchor::CheckAuthSigs(CTeam const & team) const
 {
     // Sigs must meet quorum size
     if (sigs.size() < GetMinAnchorQuorum(team)) {
-        return false;
+        return error("%s: Anchor auth team quorum not met. Min quorum: %d sigs size %d", __func__, GetMinAnchorQuorum(team), sigs.size());
     }
 
     return CheckSigs(GetSignHash(), sigs, team);
@@ -353,20 +353,7 @@ bool CAnchorIndex::Load()
 
     AnchorIndexImpl().swap(anchors);
 
-    std::set<uint256> anchorsToDelete;
-
-    std::function<void (uint256 const &, AnchorRec &)> onLoad = [this, &anchorsToDelete] (uint256 const &, AnchorRec & rec) {
-
-        // Testnet only. Delete test anchors if they fail. Fork height will be pushed back on testnet so
-        // previosuly saved anchors will become invalid. Delete when Dakota live on testnet properly.
-        if (Params().NetworkIDString() == CBaseChainParams::TESTNET) {
-            bool pending{false};
-            if (!ValidateAnchor(rec.anchor, pending)) {
-                anchorsToDelete.insert(rec.txHash);
-                return;
-            }
-        }
-
+    std::function<void (uint256 const &, AnchorRec &)> onLoad = [this] (uint256 const &, AnchorRec & rec) {
         // just for debug
         LogPrintf("anchor load: blockHash: %s, height %d, btc height: %d\n", rec.anchor.blockHash.ToString(), rec.anchor.height, rec.btcHeight);
 
@@ -374,10 +361,23 @@ bool CAnchorIndex::Load()
     };
     bool result = IterateTable(DB_ANCHORS, onLoad);
 
-    // Delete from disk any anchors that failed previosuly.
-    if (!anchorsToDelete.empty()) {
-        for (const auto& hash : anchorsToDelete) {
-            panchors->DeleteAnchorByBtcTx(hash);
+    // Testnet only. Delete test anchors if they fail. Fork height will be pushed back on testnet so
+    // previosuly saved anchors will become invalid. Delete when Dakota live on testnet properly.
+    if (Params().NetworkIDString() == CBaseChainParams::TESTNET) {
+        std::set<uint256> anchorsToDelete;
+        bool pending{false};
+        for (const auto& rec : anchors) {
+            if (rec.anchor.nextTeam.size() == 1 && !ValidateAnchor(rec.anchor, pending)) {
+                anchorsToDelete.insert(rec.txHash);
+            }
+        }
+
+        // Delete anchor
+        if (!anchorsToDelete.empty()) {
+            for (const auto& hash : anchorsToDelete) {
+                panchors->DeleteAnchorByBtcTx(hash);
+                anchors.erase(hash);
+            }
         }
     }
 
