@@ -2400,7 +2400,8 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
     }
 
     if (strCommand == NetMsgType::ANCHORAUTH) {
-        if (fImporting || fReindex) {
+        // Ignore until we have chain context to validate auth
+        if (fImporting || fReindex || ::ChainstateActive().IsInitialBlockDownload()) {
             LogPrint(BCLog::NET, "Ignoring anchorauth from peer=%d because node is in initial block download\n", pfrom->GetId());
             return true;
         }

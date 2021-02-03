@@ -96,6 +96,11 @@ CAnchor CAnchor::Create(const std::vector<CAnchorAuthMessage> & auths, CTxDestin
 
 bool CAnchor::CheckAuthSigs(CTeam const & team) const
 {
+    // Sigs must meet quorum size
+    if (sigs.size() < GetMinAnchorQuorum(team)) {
+        return false;
+    }
+
     return CheckSigs(GetSignHash(), sigs, team);
 }
 
@@ -894,15 +899,13 @@ uint256 CAnchorConfirmData::GetSignHash() const
 uint256 CAnchorConfirmDataPlus::GetSignHash() const
 {
     CDataStream ss{SER_GETHASH, 0};
-    ss << btcTxHash << anchorHeight << prevAnchorHeight << rewardKeyID << rewardKeyType << dfiBlockHash << btcTxHeight << anchorCreationHeight;
+    ss << btcTxHash << anchorHeight << prevAnchorHeight << rewardKeyID << rewardKeyType << dfiBlockHash << btcTxHeight;
     return Hash(ss.begin(), ss.end());
 }
 
 boost::optional<CAnchorConfirmMessage> CAnchorConfirmMessage::CreateSigned(const CAnchor& anchor, const THeight prevAnchorHeight,
                                                                            const uint256 &btcTxHash, CKey const & key, const THeight btcTxHeight)
 {
-    uint64_t anchorCreationHeight{0};
-
     // Potential post-fork unrewarded anchor
     if (anchor.nextTeam.size() == 1)
     {
@@ -916,8 +919,8 @@ boost::optional<CAnchorConfirmMessage> CAnchorConfirmMessage::CreateSigned(const
         GetAnchorEmbeddedData(teamData, anchorCreationHeight, prefix);
     }
 
-    CAnchorConfirmMessage message(CAnchorConfirmDataPlus{btcTxHash, anchor.height, prevAnchorHeight, anchor.rewardKeyID, anchor.rewardKeyType,
-                                                         anchor.blockHash, btcTxHeight, static_cast<uint32_t>(anchorCreationHeight)});
+    CAnchorConfirmMessage message(CAnchorConfirmDataPlus{btcTxHash, anchor.height, prevAnchorHeight, anchor.rewardKeyID,
+                                                         anchor.rewardKeyType, anchor.blockHash, btcTxHeight});
 
     if (!key.SignCompact(message.GetSignHash(), message.signature)) {
         message.signature.clear();
@@ -983,6 +986,12 @@ bool CAnchorAwaitingConfirms::Validate(CAnchorConfirmMessage const &confirmMessa
         return false;
     }
 
+    auto it = pcustomcsview->GetMasternodeIdByOperator(signer);
+    if (!it || !pcustomcsview->GetMasternode(*it)->IsActive()) {
+        LogPrintf("%s: Warning! Masternode with operator key %s does not exist or not active!\n", __func__, signer.ToString());
+        return false;
+    }
+
     CBlockIndex* anchorIndex = ::ChainActive()[confirmMessage.anchorHeight];
     if (!anchorIndex) {
         return error("%s: Active chain does not contain block height %d!", __func__, confirmMessage.anchorHeight);
@@ -991,12 +1000,6 @@ bool CAnchorAwaitingConfirms::Validate(CAnchorConfirmMessage const &confirmMessa
     if (anchorIndex->GetBlockHash() != confirmMessage.dfiBlockHash) {
         return error("%s: Anchor and blockchain mismatch at height %d. Expected %s found %s",
                      __func__, confirmMessage.anchorHeight, anchorIndex->GetBlockHash().ToString(), confirmMessage.dfiBlockHash.ToString());
-    }
-
-    auto it = pcustomcsview->GetMasternodeIdByOperator(signer);
-    if (!it || !pcustomcsview->GetMasternode(*it)->IsActive()) {
-        LogPrintf("%s: Warning! Masternode with operator key %s does not exist or not active!\n", __func__, signer.ToString());
-        return false;
     }
 
     return true;
@@ -1034,10 +1037,6 @@ void CAnchorAwaitingConfirms::ReVote()
 
     const auto operatorDetails = AmISignerNow(currentTeam);
 
-    if (operatorDetails.empty()) {
-        return;
-    }
-
     for (const auto& keys : operatorDetails) {
         CAnchorIndex::UnrewardedResult unrewarded = panchors->GetUnrewarded();
         for (auto const & btcTxHash : unrewarded) {
@@ -1066,12 +1065,11 @@ std::vector<CAnchorConfirmMessage> CAnchorAwaitingConfirms::GetQuorumFor(const C
             result.clear();
             for (; result.size() < quorum && it0 != it1; ++it0) {
                 if (team.find(it0->GetSigner()) != team.end()) {
-                    LogPrintf("GetQuorumFor: pick up confirm vote by %s for %s, defiHeight %d\n", it0->GetSigner().ToString(), it0->btcTxHash.ToString(), it0->anchorHeight);
                     result.push_back(*it0);
                 }
             }
             if (result.size() == quorum) {
-                LogPrintf("GetQuorumFor: get valid group of confirmations for %s, defiHeight %d\n", result[0].btcTxHash.ToString(), result[0].anchorHeight);
+                LogPrint(BCLog::ANCHORING, "%s: valid anchor confirm group. btcTxHash %s, defiHeight %d\n", __func__, result[0].btcTxHash.ToString(), result[0].anchorHeight);
                 return result;
             }
         }

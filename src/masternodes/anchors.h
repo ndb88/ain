@@ -354,14 +354,12 @@ struct CAnchorConfirmDataPlus : public CAnchorConfirmData
 {
     uint256 dfiBlockHash;
     THeight btcTxHeight{0};
-    THeight anchorCreationHeight{0};
 
     CAnchorConfirmDataPlus(const uint256& btcTxHash, const THeight anchorHeight, const THeight prevAnchorHeight, const CKeyID& rewardKeyID,
-                           const char rewardKeyType, const uint256& dfiBlockHash, const THeight btcTxHeight, const THeight anchorCreationHeight)
+                           const char rewardKeyType, const uint256& dfiBlockHash, const THeight btcTxHeight)
         : CAnchorConfirmData{btcTxHash, anchorHeight, prevAnchorHeight, rewardKeyID, rewardKeyType},
           dfiBlockHash{dfiBlockHash},
-          btcTxHeight{btcTxHeight},
-          anchorCreationHeight{anchorCreationHeight}
+          btcTxHeight{btcTxHeight}
     {}
 
     explicit CAnchorConfirmDataPlus(const CAnchorFinalizationMessage& base)
@@ -379,7 +377,6 @@ struct CAnchorConfirmDataPlus : public CAnchorConfirmData
         READWRITEAS(CAnchorConfirmData, *this);
         READWRITE(dfiBlockHash);
         READWRITE(btcTxHeight);
-        READWRITE(anchorCreationHeight);
     }
 };
 

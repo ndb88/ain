@@ -681,7 +681,6 @@ UniValue spv_listanchorrewardconfirms(const JSONRPCRequest& request)
             item.pushKV("dfiBlockHash", prev->dfiBlockHash.ToString());
             item.pushKV("prevAnchorHeight", static_cast<int>(prev->prevAnchorHeight));
             item.pushKV("rewardAddress", EncodeDestination(rewardDest));
-            item.pushKV("anchorCreationHeight", static_cast<int>(prev->anchorCreationHeight));
             item.pushKV("confirmSignHash", prev->GetSignHash().ToString());
             item.pushKV("signers", (uint64_t)signers.size());
             result.push_back(item);
@@ -704,7 +703,6 @@ UniValue spv_listanchorrewardconfirms(const JSONRPCRequest& request)
         item.pushKV("dfiBlockHash", prev->dfiBlockHash.ToString());
         item.pushKV("prevAnchorHeight", static_cast<int>(prev->prevAnchorHeight));
         item.pushKV("rewardAddress", EncodeDestination(rewardDest));
-        item.pushKV("anchorCreationHeight", static_cast<int>(prev->anchorCreationHeight));
         item.pushKV("confirmSignHash", prev->GetSignHash().ToString());
         item.pushKV("signers", (uint64_t)signers.size());
         result.push_back(item);
