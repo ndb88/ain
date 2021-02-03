@@ -236,7 +236,7 @@ public:
     void CalcAnchoringTeams(uint256 const & stakeModifier, const CBlockIndex *pindexNew);
 
     /// @todo newbase move to networking?
-    void CreateAndRelayConfirmMessageIfNeed(const CAnchorIndex::AnchorRec* anchor, const uint256 & btcTxHash, const CKeyID& operatorAuthAddress);
+    void CreateAndRelayConfirmMessageIfNeed(const CAnchorIndex::AnchorRec* anchor, const uint256 & btcTxHash, const CKey &masternodeKey);
 
     // simplified version of undo, without any unnecessary undo data
     void OnUndoTx(uint256 const & txid, uint32_t height);
@@ -276,6 +276,8 @@ public:
 
 class CWallet;
 isminetype IsMineCached(CWallet & wallet, CScript const & script);
+
+std::map<CKeyID, CKey> AmISignerNow(CAnchorData::CTeam const & team);
 
 /** Global DB and view that holds enhanced chainstate data (should be protected by cs_main) */
 extern std::unique_ptr<CStorageLevelDB> pcustomcsDB;

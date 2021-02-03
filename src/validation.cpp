@@ -4011,41 +4011,6 @@ bool CChainState::AcceptBlock(const std::shared_ptr<const CBlock>& pblock, CVali
     return true;
 }
 
-// Organise set by CKeyID, no comparator results in compiler error.
-auto comp = [](const std::pair<CKeyID, CKey>& lhs, const std::pair<CKeyID, CKey>& rhs) {
-    return lhs.first < rhs.first;
-};
-
-bool AmISignerNow(CAnchorData::CTeam const & team, std::set<std::pair<const CKeyID, const CKey>, decltype(comp)>& operatorDetails)
-{
-    AssertLockHeld(cs_main);
-
-    auto const mnIds = pcustomcsview->GetOperatorsMulti();
-    for (const auto& mnId : mnIds)
-    {
-        if (pcustomcsview->GetMasternode(mnId.second)->IsActive() && team.find(mnId.first) != team.end())
-        {
-            CKey masternodeKey;
-            std::vector<std::shared_ptr<CWallet>> wallets = GetWallets();
-            for (auto const & wallet : wallets) {
-                if (wallet->GetKey(mnId.first, masternodeKey)) {
-                    break;
-                }
-                masternodeKey = CKey{};
-            }
-            if (masternodeKey.IsValid()) {
-                operatorDetails.emplace(mnId.first, masternodeKey);
-            }
-        }
-    }
-
-    if (!operatorDetails.empty()) {
-        return true;
-    }
-
-    return false;
-}
-
 void ProcessAuthsIfTipChanged(CBlockIndex const * oldTip, CBlockIndex const * tip, Consensus::Params const & consensus)
 {
     AssertLockNotHeld(cs_main);
@@ -4055,16 +4020,22 @@ void ProcessAuthsIfTipChanged(CBlockIndex const * oldTip, CBlockIndex const * ti
 
     LOCK(cs_main);
 
-    // if our new tip is a child of prev
     auto topAnchor = panchors->GetActiveAnchor();
-    auto const team = panchors->GetCurrentTeam(topAnchor);
-
-    // Rename later when removing historical pre-fork anchor logic
+    CTeamView::CTeam team;
+    int teamChange = tip->nHeight;
     auto const teamDakota = pcustomcsview->GetAuthTeam(tip->height);
 
     bool newAnchorLogic{tip->height >= static_cast<uint64_t>(consensus.DakotaHeight)};
-    if (newAnchorLogic && (!teamDakota || teamDakota->empty())) {
-        return;
+    if (newAnchorLogic) {
+        if (!teamDakota || teamDakota->empty()) {
+            return;
+        }
+        team = *teamDakota;
+
+        // Calc how far back team changes, do not generate auths below that height.
+        teamChange = (teamChange - Params().GetConsensus().DakotaHeight) % Params().GetConsensus().mn.anchoringTeamChange;
+    } else {
+        team = panchors->GetCurrentTeam(topAnchor);
     }
 
     uint64_t topAnchorHeight = topAnchor ? static_cast<uint64_t>(topAnchor->anchor.height) : 0;
@@ -4086,19 +4057,10 @@ void ProcessAuthsIfTipChanged(CBlockIndex const * oldTip, CBlockIndex const * ti
     }
 
     // masternode key and operator auth address
-    std::set<std::pair<const CKeyID, const CKey>, decltype(comp)> operatorDetails(comp);
-    int teamChange = tip->nHeight;
+    auto operatorDetails = AmISignerNow(team);
 
-    if (newAnchorLogic) {
-        if (!AmISignerNow(*teamDakota, operatorDetails)) {
-            return;
-        }
-        // Calc how far back team changes, do not generate auths below that height.
-        teamChange = (teamChange - Params().GetConsensus().DakotaHeight) % Params().GetConsensus().mn.anchoringTeamChange;
-    } else {
-        if (!AmISignerNow(team, operatorDetails)) {
-            return;
-        }
+    if (operatorDetails.empty()) {
+        return;
     }
 
     // trying to create auths between pindexFork and new tip (descending)

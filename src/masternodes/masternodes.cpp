@@ -637,23 +637,11 @@ void CCustomCSView::CalcAnchoringTeams(const uint256 & stakeModifier, const CBlo
 }
 
 /// @todo newbase move to networking?
-void CCustomCSView::CreateAndRelayConfirmMessageIfNeed(const CAnchorIndex::AnchorRec *anchor, const uint256 & btcTxHash, const CKeyID& operatorAuthAddress)
+void CCustomCSView::CreateAndRelayConfirmMessageIfNeed(const CAnchorIndex::AnchorRec *anchor, const uint256 & btcTxHash, const CKey& masternodeKey)
 {
-    std::vector<std::shared_ptr<CWallet>> wallets = GetWallets();
-    CKey masternodeKey;
-    for (const auto& wallet : wallets) {
-        if (wallet->GetKey(operatorAuthAddress, masternodeKey)) {
-            break;
-        }
-    }
-
-    if (!masternodeKey.IsValid()) {
-        LogPrint(BCLog::ANCHORING, "%s: Warning! Masternodes is't valid %s\n", __func__, operatorAuthAddress.ToString());
-        return;
-    }
-
     auto prev = panchors->GetAnchorByTx(anchor->anchor.previousAnchor);
     auto confirmMessage = CAnchorConfirmMessage::CreateSigned(anchor->anchor, prev ? prev->anchor.height : 0, btcTxHash, masternodeKey, anchor->btcHeight);
+
     if (panchorAwaitingConfirms->Add(*confirmMessage)) {
         LogPrint(BCLog::ANCHORING, "%s: Create message %s\n", __func__, confirmMessage->GetHash().GetHex());
         RelayAnchorConfirm(confirmMessage->GetHash(), *g_connman);
@@ -799,4 +787,31 @@ isminetype IsMineCached(CWallet & wallet, CScript const & script)
         mIt = it->second.mineData.emplace(script, ::IsMine(wallet, script)).first;
     }
     return mIt->second;
+}
+
+std::map<CKeyID, CKey> AmISignerNow(CAnchorData::CTeam const & team)
+{
+    AssertLockHeld(cs_main);
+
+    std::map<CKeyID, CKey> operatorDetails;
+    auto const mnIds = pcustomcsview->GetOperatorsMulti();
+    for (const auto& mnId : mnIds)
+    {
+        if (pcustomcsview->GetMasternode(mnId.second)->IsActive() && team.find(mnId.first) != team.end())
+        {
+            CKey masternodeKey;
+            std::vector<std::shared_ptr<CWallet>> wallets = GetWallets();
+            for (auto const & wallet : wallets) {
+                if (wallet->GetKey(mnId.first, masternodeKey)) {
+                    break;
+                }
+                masternodeKey = CKey{};
+            }
+            if (masternodeKey.IsValid()) {
+                operatorDetails[mnId.first] = masternodeKey;
+            }
+        }
+    }
+
+    return operatorDetails;
 }

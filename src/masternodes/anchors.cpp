@@ -348,13 +348,34 @@ bool CAnchorIndex::Load()
 
     AnchorIndexImpl().swap(anchors);
 
-    std::function<void (uint256 const &, AnchorRec &)> onLoad = [this] (uint256 const &, AnchorRec & rec) {
+    std::set<uint256> anchorsToDelete;
+
+    std::function<void (uint256 const &, AnchorRec &)> onLoad = [this, &anchorsToDelete] (uint256 const &, AnchorRec & rec) {
+
+        // Testnet only. Delete test anchors if they fail. Fork height will be pushed back on testnet so
+        // previosuly saved anchors will become invalid. Delete when Dakota live on testnet properly.
+        if (Params().NetworkIDString() == CBaseChainParams::TESTNET) {
+            bool pending{false};
+            if (!ValidateAnchor(rec.anchor, pending)) {
+                anchorsToDelete.insert(rec.txHash);
+                return;
+            }
+        }
+
         // just for debug
         LogPrintf("anchor load: blockHash: %s, height %d, btc height: %d\n", rec.anchor.blockHash.ToString(), rec.anchor.height, rec.btcHeight);
 
         anchors.insert(std::move(rec));
     };
     bool result = IterateTable(DB_ANCHORS, onLoad);
+
+    // Delete from disk any anchors that failed previosuly.
+    if (!anchorsToDelete.empty()) {
+        for (const auto& hash : anchorsToDelete) {
+            panchors->DeleteAnchorByBtcTx(hash);
+        }
+    }
+
     if (result) {
         // fix spv height to avoid datarace while choosing best anchor
         // (in the 'Load' it is safe to call spv under lock cause it is not connected yet)
@@ -997,30 +1018,33 @@ void CAnchorAwaitingConfirms::ReVote()
 {
     AssertLockHeld(cs_main);
 
-    auto myIDs = pcustomcsview->AmIOperator();
-    if (myIDs && pcustomcsview->GetMasternode(myIDs->second)->IsActive()) {
+    const auto height = ::ChainActive().Height();
 
-        const auto height = ::ChainActive().Height();
-
-        CTeamView::CTeam currentTeam;
-        if (height >= Params().GetConsensus().DakotaHeight) {
-            if (auto team = pcustomcsview->GetConfirmTeam(height)) {
-                currentTeam = *team;
-            }
-        } else {
-            currentTeam = pcustomcsview->GetCurrentTeam();
-
+    CTeamView::CTeam currentTeam;
+    if (height >= Params().GetConsensus().DakotaHeight) {
+        auto team = pcustomcsview->GetConfirmTeam(height);
+        if (team) {
+            currentTeam = *team;
+        } else if (!team || team->empty()) {
+            return;
         }
+    } else {
+        currentTeam = pcustomcsview->GetCurrentTeam();
+    }
 
-        const CKeyID& operatorAuthAddress = myIDs->first;
-        if (currentTeam.find(myIDs->first) != currentTeam.end()) {
+    const auto operatorDetails = AmISignerNow(currentTeam);
 
-            CAnchorIndex::UnrewardedResult unrewarded = panchors->GetUnrewarded();
-            for (auto const & btcTxHash : unrewarded) {
-                pcustomcsview->CreateAndRelayConfirmMessageIfNeed(panchors->GetAnchorByTx(btcTxHash), btcTxHash, operatorAuthAddress);
-            }
+    if (operatorDetails.empty()) {
+        return;
+    }
+
+    for (const auto& keys : operatorDetails) {
+        CAnchorIndex::UnrewardedResult unrewarded = panchors->GetUnrewarded();
+        for (auto const & btcTxHash : unrewarded) {
+            pcustomcsview->CreateAndRelayConfirmMessageIfNeed(panchors->GetAnchorByTx(btcTxHash), btcTxHash, keys.second);
         }
     }
+
 }
 
 // for MINERS only!
