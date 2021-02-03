@@ -496,7 +496,7 @@ CAmount GetAnchorSubsidy(int anchorHeight, int prevAnchorHeight, const Consensus
 bool ValidateAnchor(CAnchor const & anchor, bool& pending);
 
 // Validate anchor in the context of the active chain
-bool ContextualValidateAnchor(const CAnchorData& anchor, CBlockIndex* anchorBlock, uint64_t &anchorCreationHeight);
+bool ContextualValidateAnchor(const CAnchorData& anchor, CBlockIndex* anchorCreationBlock, uint64_t &anchorCreationHeight);
 
 // Get info from data embedded into CAnchorData::nextTeam
 bool GetAnchorEmbeddedData(const CKeyID& data, uint64_t& anchorCreationHeight, std::shared_ptr<std::vector<unsigned char>>& prefix);

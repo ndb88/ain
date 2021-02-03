@@ -4045,7 +4045,7 @@ void ProcessAuthsIfTipChanged(CBlockIndex const * oldTip, CBlockIndex const * ti
     }
 
     CBlockIndex const * pindexFork = ::ChainActive().FindFork(oldTip);
-    uint64_t forkHeight = pindexFork && (pindexFork->height >= (uint64_t)consensus.mn.anchoringLag) ? pindexFork->height - (uint64_t)consensus.mn.anchoringLag : 0;
+    uint64_t forkHeight = pindexFork && (pindexFork->height >= (uint64_t)consensus.mn.anchoringFrequency) ? pindexFork->height - (uint64_t)consensus.mn.anchoringFrequency : 0;
     // limit fork height - trim it by the top anchor, if any
     forkHeight = std::max(forkHeight, topAnchorHeight);
     pindexFork = ::ChainActive()[forkHeight];
@@ -4072,11 +4072,16 @@ void ProcessAuthsIfTipChanged(CBlockIndex const * oldTip, CBlockIndex const * ti
             continue;
         }
 
-        int anchorHeight = static_cast<int>(pindex->height) - consensus.mn.anchoringLag;
+        int anchorHeight = static_cast<int>(pindex->height) - consensus.mn.anchoringFrequency;
 
-        // Get anchor block from specified time depth
         if (newAnchorLogic) {
-            while (anchorHeight > 0 && ::ChainActive()[anchorHeight]->nTime + consensus.mn.anchoringTimeDepth > tip->nTime) {
+            // Get anchor block from specified time depth
+            while (anchorHeight > 0 && ::ChainActive()[anchorHeight]->nTime + consensus.mn.anchoringTimeDepth > pindex->nTime) {
+                --anchorHeight;
+            }
+
+            // Rollback to height consistent with anchoringFrequency
+            while (anchorHeight > 0 && anchorHeight % consensus.mn.anchoringFrequency != 0) {
                 --anchorHeight;
             }
         }

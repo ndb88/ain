@@ -155,7 +155,6 @@ public:
         consensus.mn.historyFrame = 300;
         consensus.mn.anchoringTeamSize = 5;
         consensus.mn.anchoringFrequency = 15;
-        consensus.mn.anchoringLag = 15;
 
         consensus.mn.anchoringTimeDepth = 3 * 60 * 60; // 3 hours
         consensus.mn.anchoringTeamChange = 120; // Number of blocks
@@ -333,7 +332,6 @@ public:
         consensus.mn.historyFrame = 300;
         consensus.mn.anchoringTeamSize = 5;
         consensus.mn.anchoringFrequency = 15;
-        consensus.mn.anchoringLag = 15;
 
         consensus.mn.anchoringTimeDepth = 3 * 60 * 60; // 3 hours
         consensus.mn.anchoringTeamChange = 120; // Number of blocks
@@ -477,7 +475,6 @@ public:
         consensus.mn.historyFrame = 300;
         consensus.mn.anchoringTeamSize = 5;
         consensus.mn.anchoringFrequency = 15;
-        consensus.mn.anchoringLag = 15;
 
         consensus.mn.anchoringTimeDepth = 3 * 60 * 60; // 3 hours
         consensus.mn.anchoringTeamChange = 120; // Number of blocks
@@ -615,7 +612,6 @@ public:
         consensus.mn.historyFrame = 300;
         consensus.mn.anchoringTeamSize = 8;
         consensus.mn.anchoringFrequency = 15;
-        consensus.mn.anchoringLag = 15;
 
         consensus.mn.anchoringTimeDepth = 0; // Any depth
         consensus.mn.anchoringTeamChange = 15; // Number of blocks

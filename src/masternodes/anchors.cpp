@@ -826,7 +826,7 @@ bool ValidateAnchor(const CAnchor & anchor, bool& pending)
     return true;
 }
 
-bool ContextualValidateAnchor(const CAnchorData &anchor, CBlockIndex* anchorBlock, uint64_t &anchorCreationHeight)
+bool ContextualValidateAnchor(const CAnchorData &anchor, CBlockIndex* anchorCreationBlock, uint64_t &anchorCreationHeight)
 {
     CBlockIndex* anchorIndex = ::ChainActive()[anchor.height];
     if (!anchorIndex) {
@@ -860,8 +860,8 @@ bool ContextualValidateAnchor(const CAnchorData &anchor, CBlockIndex* anchorBloc
     }
 
     // Make sure height exist
-    anchorBlock = ::ChainActive()[anchorCreationHeight];
-    if (anchorBlock == nullptr) {
+    anchorCreationBlock = ::ChainActive()[anchorCreationHeight];
+    if (anchorCreationBlock == nullptr) {
         // Set to max to be used to avoid deleting pending anchor.
         anchorCreationHeight = std::numeric_limits<uint64_t>::max();
         return error("%s: Cannot get block from anchor team data: height %d", __func__, anchorCreationHeight);
@@ -869,21 +869,24 @@ bool ContextualValidateAnchor(const CAnchorData &anchor, CBlockIndex* anchorBloc
 
     // Then match the hash prefix from anchor and active chain
     size_t prefixLength{CKeyID().size() - (spv::BtcAnchorMarker.size() * sizeof(uint8_t)) - sizeof(uint64_t)};
-    std::vector<unsigned char> hashPrefix{anchorBlock->GetBlockHash().begin(), anchorBlock->GetBlockHash().begin() + prefixLength};
+    std::vector<unsigned char> hashPrefix{anchorCreationBlock->GetBlockHash().begin(), anchorCreationBlock->GetBlockHash().begin() + prefixLength};
     if (hashPrefix != *prefix) {
         return error("%s: Anchor prefix and active chain do not match. anchor %s active %s height %d",
                      __func__, HexStr(*prefix), HexStr(hashPrefix), anchorCreationHeight);
     }
 
     // Recreate the creation height of the anchor
-    int creationHeight = static_cast<int>(anchorCreationHeight) - Params().GetConsensus().mn.anchoringLag;
-    while (creationHeight > 0 && ::ChainActive()[creationHeight]->nTime + Params().GetConsensus().mn.anchoringTimeDepth > anchorBlock->nTime) {
-        --creationHeight;
+    int anchorHeight = static_cast<int>(anchorCreationHeight) - Params().GetConsensus().mn.anchoringFrequency;
+    while (anchorHeight > 0 && ::ChainActive()[anchorHeight]->nTime + Params().GetConsensus().mn.anchoringTimeDepth > anchorCreationBlock->nTime) {
+        --anchorHeight;
+    }
+    while (anchorHeight > 0 && anchorHeight % Params().GetConsensus().mn.anchoringFrequency != 0) {
+        --anchorHeight;
     }
 
     // Check heights match
-    if (static_cast<int>(anchor.height) != creationHeight) {
-        return error("%s: Anchor height mismatch. Anchor height %d calculated height %d", __func__, anchor.height, creationHeight);
+    if (static_cast<int>(anchor.height) != anchorHeight) {
+        return error("%s: Anchor height mismatch. Anchor height %d calculated height %d", __func__, anchor.height, anchorHeight);
     }
 
     return true;
